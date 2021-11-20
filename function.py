@@ -368,11 +368,3 @@ class Variable(Function):
 		if self._val[0] == '-':
 			varVal *= -1
 		return varVal
-
-if __name__ == '__main__':
-
-	f = newFunction('3*x^3 + x/4 - 2')
-	if f:
-		print(f)
-		print(f.derivada())
-		print(f.integral())
