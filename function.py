@@ -68,7 +68,7 @@ def separate(function_str):
 		if c != ' ':
 			prev = c
 
-	if aux and result:
+	if aux and isinstance(result, list):
 		result.append(aux)
 
 	return result
@@ -113,25 +113,24 @@ class Function(abc.ABC):
 	def __repr__(self):
 		pass
 
-	# @abc.abstractmethod
-	# def __add__(self):
-	# 	pass
+	def __add__(self, other):
+		return Operator('+', self, other)
 
-	# @abc.abstractmethod
-	# def __sub__(self):
-	# 	pass
+	def __sub__(self, other):
+		return Operator('-',  self, other)
 
-	# @abc.abstractmethod
-	# def __mul__(self):
-	# 	pass
+	def __mul__(self, other):
+		return Operator('*',  self, other)
 
-	# @abc.abstractmethod
-	# def __truediv__(self):
-	# 	pass
+	def __truediv__(self, other):
+		return Operator('/',  self, other)
 
-	# @abc.abstractmethod
-	# def __pow__(self):
-	# 	pass
+	def __pow__(self, other):
+		return Operator('^',  self, other)
+
+	@abc.abstractmethod
+	def derivada(self):
+		pass
 
 	@abc.abstractmethod
 	def __call__(self):
@@ -180,7 +179,7 @@ def newFunction(func):
 				if len(pilha) >= 2:
 					right = pilha.pop(-1)
 					left = pilha.pop(-1)
-					pilha.append(Operator(f, left, right).simplify())
+					pilha.append(Operator(f, left, right))
 				else:
 					obj = False
 					break
@@ -189,6 +188,9 @@ def newFunction(func):
 			obj = pilha[0]
 		else:
 			obj = False
+
+		if isinstance(obj, Operator):
+			obj.simplify()
 
 	return obj
 
@@ -200,8 +202,51 @@ class Operator(Function):
 		self._right = right
 
 	def simplify(self):
+		if isinstance(self._left, Operator):
+			self._left = self._left.simplify()
+		if isinstance(self._right, Operator):
+			self._right = self._right.simplify()
+
 		if isinstance(self._left, Constant) and isinstance(self._right, Constant):
-			return Constant(operFunctions[self._val](self._left, self._right))
+			return Constant(operFunctions[self._val](self._left._val, self._right._val))
+		
+		if self._val == '+':
+			if self._left._val == 0:
+				return self._right
+			elif self._right._val == 0:
+				return self._left
+			else:
+				return self
+		elif self._val == '-':
+			if self._left._val == 0:
+				return Constant(-self._right._val)
+			elif self._right._val == 0:
+				return self._left
+			else:
+				return self
+		elif self._val == '*':
+			if self._left._val == 0 or self._right._val == 0:
+				return Constant(0)
+			elif self._right._val == 1:
+				return self._left
+			elif self._left._val == 1:
+				return self._right
+			else:
+				return self
+		elif self._val == '/':
+			if self._right._val == 1:
+				return self._left
+			else:
+				return self
+		elif self._val == '^':
+			if self._right._val == 0 or self._left._val == 1:
+				return Constant(1)
+			elif self._right._val == 1:
+				return self._left
+			elif self._left._val == 0:
+				return Constant(0)
+			else:
+				return self
 		else:
 			return self
 
@@ -219,6 +264,55 @@ class Operator(Function):
 		else:
 			result += str(self._right)
 		return result
+
+	def derivada(self):
+		dl = self._left.derivada()
+		dr = self._right.derivada()
+		d = False
+		if self._val in '+-':
+			d = operFunctions[self._val](dl, dr)
+		elif self._val == '*':
+			d = self._left*dr + self._right*dl
+		elif self._val == '/':
+			if isinstance(self._left, Constant):
+				d = dr / self._left
+			elif isinstance(self._right, Constant):
+				d = dl / self._right
+			else:
+				d = (self._right*dl - self._left*dr)/(dr**Constant(2))
+		elif self._val == '^':
+			if isinstance(self._left, Variable) and isinstance(self._right, Constant):
+				d = self._right * self._left**(Constant(self._right._val-1))
+			else:
+				pass
+
+		if isinstance(d, Operator):
+			d = d.simplify()
+
+		return d
+
+	def integral(self):
+		il = self._left.integral()
+		ir = self._right.integral()
+		i = False
+
+		if self._val in '+-':
+			i = operFunctions[self._val](il, ir)
+		elif self._val in '*/':
+			if isinstance(self._left, Constant):
+				i = operFunctions[self._val](self._left, ir)
+			elif isinstance(self._right, Constant):
+				i = operFunctions[self._val](self._right, il)
+			else:
+				pass
+		elif self._val == '^':
+			if isinstance(self._left, Variable) and isinstance(self._right, Constant):
+				newPower = Constant(self._right._val + 1)
+				i = (self._left ** newPower)/newPower
+			else:
+				pass
+
+		return i
 
 	def __call__(self, varVal):
 		return operFunctions[self._val](self._left(varVal), self._right(varVal))
@@ -240,20 +334,11 @@ class Constant(Function):
 
 		return result
 
-	def __add__(self, otherConstant):
-		return self._val + otherConstant._val
+	def derivada(self):
+		return Constant(0)
 
-	def __sub__(self, otherConstant):
-		return self._val - otherConstant._val
-
-	def __mul__(self, otherConstant):
-		return self._val * otherConstant._val
-
-	def __truediv__(self, otherConstant):
-		return self._val / otherConstant._val
-
-	def __pow__(self, otherConstant):
-		return self._val ** otherConstant._val
+	def integral(self):
+		return self * Variable('x')
 
 	def __call__(self, varVal):
 		return self._val
@@ -273,14 +358,21 @@ class Variable(Function):
 			result = '(' + result + ')'
 		return result
 
+	def derivada(self):
+		return Constant(1)
+
+	def integral(self):
+		return (self ** Constant(2))/Constant(2)
+
 	def __call__(self, varVal):
-		if self._val == '-x':
+		if self._val[0] == '-':
 			varVal *= -1
 		return varVal
 
 if __name__ == '__main__':
 
-	func = input()
-	f = newFunction(func)
+	f = newFunction('3*x^3 + x/4 - 2')
 	if f:
-		f.plot(y_min=0, x_min=-5, x_max=5)
+		print(f)
+		print(f.derivada())
+		print(f.integral())
